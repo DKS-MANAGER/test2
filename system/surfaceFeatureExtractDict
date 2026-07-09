@@ -15,7 +15,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-cylinder.stl
+Cylinder.stl
 {
     extractionMethod    extractFromSurface;
 

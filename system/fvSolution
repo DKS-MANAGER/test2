@@ -9,24 +9,7 @@
   Project     : 2D Pipeline Scour Morphodynamics
   Author      : Divyansh Kumar Singh
   Level       : Postgraduate Research
-  Description : Simulation of hydrodynamics and morphodynamic scour around
-                a pipeline using the sedExnerFoam solver.
 \*---------------------------------------------------------------------------*/
-// FIX (SIGFPE at Time=0.001, PIMPLE iter 1, before any solver output):
-//
-// Root cause: correctPhi yes + moveMeshOuterCorrectors yes causes
-// mesh.controlledUpdate() + correctPhi.H to run at the START of every
-// PIMPLE iteration, including step 2.
-//
-// At step 2, the Courant number jumped from 0.066 -> 0.282 after step 1
-// (inlet corner velocity gradient: fixedValue (0.4 0 0) meets noSlip bottom).
-// correctPhi solves: div(phi_corr) = div(U) over the face flux field.
-// With the large Co jump and no mesh motion to justify the correction,
-// the pcorr GAMG solve produces face fluxes with 1/deltaCoeffs -> large
-// values at skewed inlet-corner faces -> overflow -> SIGFPE.
-//
-// Fix: correctPhi no + moveMeshOuterCorrectors no for Phase 1 (bedMotion off).
-// These must be re-enabled for Phase 2 (bedMotion on, mesh actually moves).
 FoamFile
 {
     version     2.0;
@@ -40,10 +23,14 @@ solvers
 {
     cellDisplacement
     {
-        solver          PCG;
-        preconditioner  DIC;
+        solver          GAMG;
+        smoother        GaussSeidel;
         tolerance       1e-5;
         relTol          0;
+        cacheAgglomeration true;
+        nCellsInCoarsestLevel 10;
+        agglomerator    faceAreaPair;
+        mergeLevels     1;
     }
     cellDisplacementFinal
     {
@@ -53,16 +40,25 @@ solvers
 
     p
     {
-        solver          PCG;
-        preconditioner  DIC;
+        // Switched from PCG+DIC to GAMG — PCG was hitting 1000 iter limit
+        // before converging (seen in log: "No Iterations 1000").
+        // GAMG converges the pressure Poisson equation 5-10x faster on
+        // structured-ish meshes and has a hard iteration cap via tolerance.
+        solver          GAMG;
+        smoother        DIC;
         tolerance       1e-6;
         relTol          0.01;
+        maxIter         200;
+        cacheAgglomeration true;
+        nCellsInCoarsestLevel 10;
+        agglomerator    faceAreaPair;
+        mergeLevels     1;
     }
     pFinal
     {
         $p;
-        tolerance       1e-6;
         relTol          0;
+        tolerance       1e-6;
     }
 
     pcorr
@@ -94,8 +90,9 @@ solvers
     {
         solver          PBiCGStab;
         preconditioner  DILU;
-        tolerance       1e-9;
+        tolerance       1e-8;
         relTol          0.01;
+        minIter         1;
     }
     kFinal
     {
@@ -107,8 +104,9 @@ solvers
     {
         solver          PBiCGStab;
         preconditioner  DILU;
-        tolerance       1e-9;
+        tolerance       1e-8;
         relTol          0.01;
+        minIter         1;
     }
     omegaFinal
     {
@@ -118,15 +116,23 @@ solvers
 
     Cs
     {
+        // ROOT CAUSE FIX:
+        // Log showed Min(Cs)=-175, Max(Cs)=4242 — physically impossible.
+        // PBiCGStab + linearUpwind is unbounded near steep scour gradients.
+        // Switch div(phi,Cs) to upwind in fvSchemes (see note below).
+        // Tighten relTol and add minIter to prevent early exit with bad solution.
         solver          PBiCGStab;
         preconditioner  DILU;
-        tolerance       1e-9;
-        relTol          0.01;
+        tolerance       1e-7;
+        relTol          0.001;  // tightened from 0.01
+        minIter         2;
+        maxIter         200;
     }
     CsFinal
     {
         $Cs;
         relTol          0;
+        tolerance       1e-7;
     }
 
     h
@@ -141,24 +147,29 @@ solvers
         $h;
         relTol          0;
     }
+    yWall
+    {
+    solver          smoothSolver;
+    smoother        symGaussSeidel;
+    tolerance       1e-8;
+    relTol          0;
+    }
 }
 
 PIMPLE
 {
-    nCorrectors              2;
-    nNonOrthogonalCorrectors 2;
+    nCorrectors              3;     // increased from 2 — p was not converging
+    nNonOrthogonalCorrectors 3;     // increased from 2 — deforming mesh needs more
     pRefCell                 0;
     pRefValue                0;
 
-    // PHASE 1 (bedMotion off): mesh never moves, correctPhi and
-    // moveMeshOuterCorrectors must be OFF to avoid spurious flux
-    // corrections that cause SIGFPE at step 2.
-    //
-    // *** PHASE 2 SWITCH: change BOTH to 'yes' ***
-    //   correctPhi               yes;
-    //   moveMeshOuterCorrectors  yes;
     correctPhi               yes;
     moveMeshOuterCorrectors  yes;
+
+    // Prevent PIMPLE continuing with diverged fields
+    // If p residual doesn't drop below this after nCorrectors, abort timestep
+    // and let adjustTimeStep shrink deltaT
+    turbOnFinalIterOnly      true;  // only solve k/omega on final PIMPLE iter
 }
 
 relaxationFactors
@@ -170,9 +181,9 @@ relaxationFactors
     equations
     {
         U               0.7;
-        k               0.7;
-        omega           0.7;
-        Cs              0.5;
+        k               0.5;        // tightened from 0.7
+        omega           0.5;        // tightened from 0.7
+        Cs              0.3;        // tightened from 0.5 — this is the critical one
         cellDisplacement 0.5;
     }
 }

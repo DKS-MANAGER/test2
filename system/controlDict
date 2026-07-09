@@ -31,12 +31,13 @@ application         sedExnerFoam;
 startFrom           latestTime;
 startTime           0;
 stopAt              endTime;
-endTime             7;
+endTime             2;
 
-deltaT              1e-6;
+deltaT              1e-4;
 
 writeControl        adjustableRunTime;
 writeInterval       0.5;
+
 purgeWrite          0;
 writeFormat         binary;
 writePrecision      6;
@@ -46,9 +47,8 @@ timePrecision       6;
 runTimeModifiable   yes;
 adjustTimeStep      yes;
 maxCo               0.4;
-maxDeltaT           1e-4;
+maxDeltaT           1e-3;
 
-// All custom libraries from sedExnerFoam user build
 libs
 (
     "libsedimentBed.so"

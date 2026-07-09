@@ -30,6 +30,12 @@ RAS
     RASModel    kOmegaSST;
     turbulence  on;
     printCoeffs on;
+
+    kOmegaSSTCoeffs
+    {
+        kMin        1e-15;
+        omegaMin    1e-10;
+    }
 }
 
 // ************************************************************************* //

@@ -57,7 +57,7 @@ bedloadModel
     bExp                1;
     slopeCorrecton      off;
     gamma               0.1;
-    avalanche         on;
+    avalanche         off;
     Qav                 1e-3;
     alphaFiltBeta       0.1;
     NfiltBeta           1;
@@ -70,9 +70,9 @@ criticalShieldsModel
     slopeCorrection     on;
 }
 
-// morphoAccFactor is set to 10 to accelerate bed evolution in Phase 2.
+// morphoAccFactor   0.005;
 // The tangency issue that caused extreme mesh deformation crashes has been resolved.
-morphoAccFactor   0.1;
+morphoAccFactor   0.005;
 
 filterExner             on;
 alphaFiltExner          0.3;

@@ -46,7 +46,7 @@ FoamFile
 bedPatch            bottom;
 
 // Morphological acceleration: dz_actual = morphFac * dz_computed
-morphFac            morphFac [0 0 0 0 0 0 0] 10;
+morphFac            morphFac [0 0 0 0 0 0 0] 1;
 
 // Bedload model: Nielsen1992 | MeyerPeterMuller | vanRijn
 bedloadModel        Nielsen1992;

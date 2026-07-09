@@ -1,51 +1,46 @@
 #!/bin/bash
+set -e
+
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 
-echo "=== Preparing Single-Phase Run ==="
-sed -i 's/correctPhi\s*no;/correctPhi               yes;/' system/fvSolution
-sed -i 's/moveMeshOuterCorrectors\s*no;/moveMeshOuterCorrectors  yes;/' system/fvSolution
-sed -i 's/startFrom\s*startTime;/startFrom           latestTime;/' system/controlDict
+echo "=== Meshing ==="
+blockMesh > log.blockMesh 2>&1
+surfaceFeatureExtract > log.surfaceFeatureExtract 2>&1
+topoSet > log.topoSet 2>&1
+decomposePar -force > log.decomposePar.mesh 2>&1
 
-if [ ! -d "processor0" ]; then
-    echo "=== Meshing ==="
-    rm -rf 0
-    blockMesh > log.blockMesh 2>&1
-    surfaceFeatureExtract > log.surfaceFeatureExtract 2>&1
-    snappyHexMesh -overwrite > log.snappyHexMesh 2>&1
-    extrudeMesh > log.extrudeMesh 2>&1
-    topoSet > log.topoSet 2>&1
-    makeFaMesh > log.makeFaMesh 2>&1
-    
-    cp -r 0_org 0
-    
-    # Clean up snappyHexMesh remnants that break decomposePar after extrudeMesh
-    rm -f 0/cellLevel 0/pointLevel 0/cellDist
-    
-    decomposePar -force > log.decomposePar 2>&1
-fi
+mpirun -np 6 snappyHexMesh -parallel -overwrite > log.snappyHexMesh 2>&1
 
-echo "=== Copying Finite Area initial conditions ==="
+reconstructParMesh -constant > log.reconstructParMesh.constant 2>&1
+rm -rf processor*
+
+echo "=== Finite-area mesh ==="
+extrudeMesh > log.extrudeMesh 2>&1
+topoSet > log.topoSet 2>&1
+makeFaMesh > log.makeFaMesh 2>&1
+
+cp -r 0_org 0
+rm -f 0/cellLevel 0/pointLevel 0/cellDist
+
+decomposePar -force > log.decomposePar.run 2>&1
+
+echo "=== Copying finite-area fields ==="
 ./copyFA.sh
 
-echo "=== PHASE 1: Hydrodynamic Spin-up ==="
-# Allow hydrodynamics to stabilize with very slow bed motion
-sed -i 's/endTime\s*[0-9.]*;/endTime             2.0;/' system/controlDict
-sed -i 's/morphoAccFactor\s*[0-9.]*;/morphoAccFactor   0.005;/' constant/bedloadProperties
-sed -i 's/avalanche\s*on;/avalanche         off;/' constant/bedloadProperties
-mpirun -np 6 sedExnerFoam -parallel > log.sedExnerFoam_spinup 2>&1
+echo "=== Phase 1 ==="
+# sed -i 's/endTime.*/endTime          2.0;/' system/controlDict
+sed -i 's/morphoAccFactor.*/morphoAccFactor   0.005;/' constant/bedloadProperties
+sed -i 's/avalanche.*/avalanche         off;/' constant/bedloadProperties
+mpirun -np 6 sedExnerFoam -parallel > log.phase1 2>&1
 
-echo "=== PHASE 2: Morphodynamic Scour Transition ==="
-# Graduate the Exner Courant number to prevent numeric shock in the 1.0mm gap
-sed -i 's/endTime\s*[0-9.]*;/endTime             2.5;/' system/controlDict
-sed -i 's/morphoAccFactor\s*[0-9.]*;/morphoAccFactor   0.1;/' constant/bedloadProperties
-sed -i 's/avalanche\s*off;/avalanche         on;/' constant/bedloadProperties
-mpirun -np 6 sedExnerFoam -parallel > log.sedExnerFoam_transition 2>&1
+echo "=== Phase 2 ==="
+#sed -i 's/endTime.*/endTime          10.0;/' system/controlDict
+sed -i 's/morphoAccFactor.*/morphoAccFactor   0.1;/' constant/bedloadProperties
+sed -i 's/avalanche.*/avalanche         on;/' constant/bedloadProperties
+mpirun -np 6 sedExnerFoam -parallel > log.phase2 2>&1
 
-echo "=== PHASE 3: Full Morphodynamic Scour ==="
-# Accelerate morphodynamics once the gap has widened and velocity has dropped
-sed -i 's/endTime\s*[0-9.]*;/endTime             10.0;/' system/controlDict
-sed -i 's/morphoAccFactor\s*[0-9.]*;/morphoAccFactor   1.0;/' constant/bedloadProperties
-mpirun -np 6 sedExnerFoam -parallel > log.sedExnerFoam_scour 2>&1
-
-echo "=== Reconstructing ==="
+echo "=== Reconstructing results ==="
+reconstructParMesh -latestTime > log.reconstructParMesh 2>&1
 reconstructPar > log.reconstructPar 2>&1
+
+rm -rf processor*
